@@ -42,7 +42,10 @@ const STATUS_TO_COLOR_MAP: Readonly<Record<DefectStatusName, string>> = {
 };
 
 const BASE_URL =
-    process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000";
+    process.env.NODE_ENV !== "development" &&
+        process.env.NEXT_PUBLIC_BASE_URL
+        ? process.env.NEXT_PUBLIC_BASE_URL
+        : "http://localhost:3000";
 
 async function fetchDefectSummary(): Promise<DefectSummaryResponse> {
     const params = new URLSearchParams();

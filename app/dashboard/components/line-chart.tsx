@@ -55,7 +55,10 @@ type LineChartPoint = {
 };
 
 const BASE_URL =
-    process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000";
+    process.env.NODE_ENV !== "development" &&
+        process.env.NEXT_PUBLIC_BASE_URL
+        ? process.env.NEXT_PUBLIC_BASE_URL
+        : "http://localhost:3000";
 
 async function fetchLast7Days(): Promise<LineChartPoint[]> {
     const res = await fetch(`${BASE_URL}/api/defect/summary-7-days`, {
