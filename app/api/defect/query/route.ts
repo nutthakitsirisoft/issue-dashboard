@@ -86,6 +86,14 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
 
+    // Optional extra JQL controls:
+    // - time:   arbitrary JQL time clause, e.g. `created >= startOfDay()` or `updated >= -7d`
+    // - jql:    any additional JQL clause, e.g. `duedate is EMPTY` or `duedate = now()`
+    //
+    // Both are appended with AND to the base query for every requested status.
+    const timeClause = searchParams.get("time");
+    const extraJqlClause = searchParams.get("jql");
+    console.log("searchParams", searchParams);
     // Support either:
     // - ?status=To%20Do&status=In%20Progress
     // - or ?statuses=To%20Do,In%20Progress
@@ -109,9 +117,19 @@ export async function GET(request: Request) {
     const results: StatusCountResult[] = await Promise.all(
       statusesRaw.map(async (status) => {
         const statusString = String(status);
-        const jql = `project = "${PROJECT_KEY}" AND type = ${ISSUE_TYPE} AND status = ${escapeJql(
+        let jql = `project = "${PROJECT_KEY}" AND type = ${ISSUE_TYPE} AND status = ${escapeJql(
           statusString,
         )}`;
+
+        if (timeClause) {
+          // Example: time=created >= startOfDay()
+          jql += ` AND ${timeClause}`;
+        }
+
+        if (extraJqlClause) {
+          // Example: jql=duedate is EMPTY
+          jql += ` AND (${extraJqlClause})`;
+        }
 
         const count = await fetchApproximateCount(jql);
         return { status: statusString, count };
@@ -128,7 +146,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ summary, total }, { status: 200 });
   } catch (error) {
-    console.error("Unexpected error in defect today API route:", error);
+    console.error("Unexpected error in defect query API route:", error);
     const message =
       error instanceof Error ? error.message : "Internal Server Error";
     return NextResponse.json({ error: message }, { status: 500 });

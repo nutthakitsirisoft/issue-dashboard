@@ -1,6 +1,6 @@
-import { StatusCard } from "./components/status-card";
 import { ChartPieSimple } from "./components/pie-chart";
 import { StatusLineChart } from "./components/line-chart";
+import { TableJiraStatus } from "./components/jira-table";
 
 type DefectStatusName =
     | "Blocked"
@@ -22,8 +22,8 @@ const DEFECT_STATUS_ORDER: readonly DefectStatusName[] = [
     "Blocked",
     "Ready to test",
     "Reviewing",
-    "Done",
-    "Canceled",
+    // "Done",
+    // "Canceled",  
 ] as const;
 
 const EXCLUDED_STATUSES_FOR_CHART: ReadonlySet<DefectStatusName> = new Set([
@@ -53,7 +53,7 @@ async function fetchDefectSummary(): Promise<DefectSummaryResponse> {
         params.append("status", status);
     });
 
-    const response = await fetch(`${BASE_URL}/api/defect/today?${params.toString()}`, {
+    const response = await fetch(`${BASE_URL}/api/defect/query?${params.toString()}`, {
         method: "GET",
         headers: { "Content-Type": "application/json" },
         // Always fetch fresh data; adjust if you want caching
@@ -79,8 +79,106 @@ async function fetchDefectSummary(): Promise<DefectSummaryResponse> {
     return json as DefectSummaryResponse;
 }
 
+type DueSummaryResponse = {
+    emptyDueDateTotal: number;
+    todayDueDateTotal: number;
+    delayedDueDateTotal: number;
+    assigneeEmptyTotal: number;
+};
+
+async function fetchDueDateSummary(): Promise<DueSummaryResponse> {
+    const params = new URLSearchParams();
+
+    // We want to count across all statuses, so reuse the same order list.
+    DEFECT_STATUS_ORDER.forEach((status) => {
+        params.append("status", status);
+    });
+
+    // 1) duedate is EMPTY
+    const emptyRes = await fetch(
+        `${BASE_URL}/api/defect/query?${params.toString()}&jql=${encodeURIComponent(
+            "duedate is EMPTY",
+        )}`,
+        {
+            method: "GET",
+            headers: { "Content-Type": "application/json" },
+            cache: "no-store",
+        },
+    );
+
+    if (!emptyRes.ok) {
+        throw new Error(`Failed to fetch empty duedate summary: ${emptyRes.statusText}`);
+    }
+
+    const emptyJson = (await emptyRes.json()) as DefectSummaryResponse;
+
+    // 2) duedate = now()
+    const nowRes = await fetch(
+        `${BASE_URL}/api/defect/query?${params.toString()}&jql=${encodeURIComponent(
+            "duedate = now()",
+        )}`,
+        {
+            method: "GET",
+            headers: { "Content-Type": "application/json" },
+            cache: "no-store",
+        },
+    );
+
+    if (!nowRes.ok) {
+        throw new Error(`Failed to fetch today duedate summary: ${nowRes.statusText}`);
+    }
+
+    const nowJson = (await nowRes.json()) as DefectSummaryResponse;
+
+    // 3) duedate < now()
+    const delayedRes = await fetch(
+        `${BASE_URL}/api/defect/query?${params.toString()}&jql=${encodeURIComponent(
+            "duedate < now()",
+        )}`,
+        {
+            method: "GET",
+            headers: { "Content-Type": "application/json" },
+            cache: "no-store",
+        },
+    );
+
+    if (!delayedRes.ok) {
+        throw new Error(`Failed to fetch before duedate summary: ${delayedRes.statusText}`);
+    }
+
+    const delayedJson = (await delayedRes.json()) as DefectSummaryResponse;
+
+    // 4) assignee = EMPTY
+    const assigneeEmptyRes = await fetch(
+        `${BASE_URL}/api/defect/query?${params.toString()}&jql=${encodeURIComponent(
+            "assignee = EMPTY",
+        )}`,
+        {
+            method: "GET",
+            headers: { "Content-Type": "application/json" },
+            cache: "no-store",
+        },
+    );
+
+    if (!assigneeEmptyRes.ok) {
+        throw new Error(`Failed to fetch assignee empty summary: ${assigneeEmptyRes.statusText}`);
+    }
+
+    const assigneeEmptyJson = (await assigneeEmptyRes.json()) as DefectSummaryResponse;
+
+    return {
+        emptyDueDateTotal: emptyJson.total,
+        todayDueDateTotal: nowJson.total,
+        delayedDueDateTotal: delayedJson.total,
+        assigneeEmptyTotal: assigneeEmptyJson.total,
+    };
+}
+
 export default async function Page() {
-    const defectSummary = await fetchDefectSummary();
+    const [defectSummary, dueDateSummary] = await Promise.all([
+        fetchDefectSummary(),
+        fetchDueDateSummary(),
+    ]);
     const chartData = Object.entries(defectSummary.summary)
         .filter(
             ([status]) =>
@@ -98,29 +196,18 @@ export default async function Page() {
 
     return (
         <div className="flex flex-col gap-4">
-            {/* <div className="flex gap-2 items-center">
-                <Button variant="outline" >
-                    Bug
-                </Button>
-                <Button variant="outline" >
-                    Task
-                </Button>
-            </div> */}
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                {DEFECT_STATUS_ORDER.map((status) => (
-                    <StatusCard
-                        key={status}
-                        statusName={status}
-                        statusCount={defectSummary.summary[status]}
-                        isFocused={status === "Blocked"}
-                    />
-                ))}
-                <StatusCard statusName="Total" statusCount={defectSummary.total} />
-            </div>
             <div className="grid gap-4 md:grid-cols-2">
                 <ChartPieSimple chartData={chartData} />
                 <StatusLineChart />
             </div>
+            <div className="grid gap-4">
+                <TableJiraStatus
+                    data={chartData}
+                    dueDateSummary={dueDateSummary}
+                    jiraBaseUrl={process.env.JIRA_BASE_URL || ""}
+                />
+            </div>
+
         </div>
     );
 }
