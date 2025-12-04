@@ -7,7 +7,7 @@ type JiraEnv = {
 };
 
 function getJiraEnv(): JiraEnv {
-  const baseUrl = process.env.JIRA_BASE_URL;
+  const baseUrl = process.env.NEXT_PUBLIC_JIRA_BASE_URL;
   const email = process.env.JIRA_EMAIL;
   const apiToken = process.env.JIRA_API_TOKEN;
 
@@ -19,18 +19,28 @@ function getJiraEnv(): JiraEnv {
 }
 
 function createAuthHeader(env: JiraEnv): string {
-  return `Basic ${Buffer.from(`${env.email}:${env.apiToken}`).toString(
-    "base64",
-  )}`;
+  const credentials = `${env.email}:${env.apiToken}`;
+  return `Basic ${Buffer.from(credentials).toString("base64")}`;
 }
 
 // Escape status for JQL
 function escapeJql(status: string): string {
-  return `"${status.replace(/"/g, '\\"')}"`;
+  const escaped = status.replaceAll('"', String.raw`\"`);
+  return `"${escaped}"`;
 }
 
 const PROJECT_KEY = "S2SWFE";
-const ISSUE_TYPE = "Bug";
+
+// Build type filter clause
+function buildTypeClause(typeFilter: string): string {
+  if (typeFilter === "All") {
+    return "type IN (Bug, Task)";
+  } else if (typeFilter === "Bug" || typeFilter === "Task") {
+    return `type = ${typeFilter}`;
+  } else {
+    return "type = Bug"; // default
+  }
+}
 
 const STATUSES = ["To Do", "In Progress", "Done"] as const;
 
@@ -104,12 +114,16 @@ async function fetchApproximateCount(jql: string): Promise<number> {
   return count;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const typeFilter = searchParams.get("type") || "All";
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     const days: DaySummary[] = [];
+    const typeClause = buildTypeClause(typeFilter);
 
     // Oldest first (6 days ago) up to today
     for (let offset = 6; offset >= 0; offset -= 1) {
@@ -121,7 +135,7 @@ export async function GET() {
       const startStr = formatDateOnly(day);
       const endStr = formatDateOnly(nextDay);
 
-      const baseJqlPrefix = `project = "${PROJECT_KEY}" AND type = ${ISSUE_TYPE}`;
+      const baseJqlPrefix = `project = "${PROJECT_KEY}" AND ${typeClause}`;
       const dateWindow = `created >= "${startStr}" AND created < "${endStr}"`;
 
       const summary: DaySummary = {

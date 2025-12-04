@@ -28,10 +28,11 @@ type TableJiraStatusProps = {
     readonly data: readonly DefectChartRow[];
     readonly dueDateSummary?: DueDateSummary;
     readonly jiraBaseUrl: string;
+    readonly typeFilter: string;
+    readonly loading?: boolean;
 };
 
 const PROJECT_KEY = "S2SWFE";
-const ISSUE_TYPE = "Bug";
 
 // Escape status for JQL
 function escapeJql(status: string): string {
@@ -39,9 +40,20 @@ function escapeJql(status: string): string {
     return `"${escaped}"`;
 }
 
+// Build type filter clause
+function buildTypeClause(typeFilter: string): string {
+    if (typeFilter === "All") {
+        return "type IN (Bug, Task)";
+    } else if (typeFilter === "Bug" || typeFilter === "Task") {
+        return `type = ${typeFilter}`;
+    } else {
+        return "type = Bug"; // default
+    }
+}
+
 // Build base JQL query
-function buildBaseJql(status?: string): string {
-    let jql = `project = "${PROJECT_KEY}" AND type = ${ISSUE_TYPE}`;
+function buildBaseJql(typeFilter: string, status?: string): string {
+    let jql = `project = "${PROJECT_KEY}" AND ${buildTypeClause(typeFilter)}`;
     if (status) {
         jql += ` AND status = ${escapeJql(status)}`;
     }
@@ -54,16 +66,42 @@ function buildJiraSearchUrl(baseUrl: string, jql: string): string {
     return `${baseUrl}/issues/?jql=${encodedJql}`;
 }
 
-export function TableJiraStatus({ data, dueDateSummary, jiraBaseUrl }: TableJiraStatusProps) {
+export function TableJiraStatus({ data, dueDateSummary, jiraBaseUrl, typeFilter, loading = false }: TableJiraStatusProps) {
     // Build JQL for due date summary rows (includes all statuses from DEFECT_STATUS_ORDER)
     const statuses = data.map((row) => row.status);
     const statusJql = statuses.map((status) => `status = ${escapeJql(status)}`).join(" OR ");
-    const baseJqlWithStatuses = `${buildBaseJql()} AND (${statusJql})`;
+    const baseJqlWithStatuses = `${buildBaseJql(typeFilter)} AND (${statusJql})`;
 
     const handleRowClick = (jql: string) => {
+        if (!jiraBaseUrl || jiraBaseUrl.trim() === "") {
+            console.error("JIRA base URL is not configured. Please set NEXT_PUBLIC_JIRA_BASE_URL environment variable.");
+            alert("JIRA base URL is not configured. Please contact your administrator.");
+            return;
+        }
         const url = buildJiraSearchUrl(jiraBaseUrl, jql);
         window.open(url, "_blank", "noopener,noreferrer");
     };
+
+    if (loading) {
+        return (
+            <div className="flex flex-row gap-6">
+                <div className="flex-1">
+                    <div className="rounded-lg border">
+                        <div className="flex h-[200px] items-center justify-center">
+                            <p className="text-muted-foreground">Loading...</p>
+                        </div>
+                    </div>
+                </div>
+                <div className="flex-1">
+                    <div className="rounded-lg border">
+                        <div className="flex h-[200px] items-center justify-center">
+                            <p className="text-muted-foreground">Loading...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="flex flex-row gap-6">
@@ -176,7 +214,7 @@ export function TableJiraStatus({ data, dueDateSummary, jiraBaseUrl }: TableJira
                 </TableHeader>
                 <TableBody>
                     {data.map((row) => {
-                        const jql = buildBaseJql(row.status);
+                        const jql = buildBaseJql(typeFilter, row.status);
                         return (
                             <TableRow
                                 key={row.status}

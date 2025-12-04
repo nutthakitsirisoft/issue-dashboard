@@ -1,6 +1,6 @@
-"use client"
+"use client";
 
-import { useEffect, useState } from "react";
+import * as React from "react";
 import {
     CartesianGrid,
     Line,
@@ -55,13 +55,15 @@ type LineChartPoint = {
 };
 
 const BASE_URL =
-    process.env.NODE_ENV !== "development" &&
-        process.env.NEXT_PUBLIC_BASE_URL
-        ? process.env.NEXT_PUBLIC_BASE_URL
-        : "http://localhost:3000";
+    globalThis.window?.location.origin ??
+    process.env.NEXT_PUBLIC_BASE_URL ??
+    "http://localhost:3000";
 
-async function fetchLast7Days(): Promise<LineChartPoint[]> {
-    const res = await fetch(`${BASE_URL}/api/defect/summary-7-days`, {
+async function fetchLast7Days(typeFilter: string): Promise<LineChartPoint[]> {
+    const params = new URLSearchParams();
+    params.append("type", typeFilter);
+
+    const res = await fetch(`${BASE_URL}/api/defect/summary-7-days?${params.toString()}`, {
         method: "GET",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
@@ -93,33 +95,83 @@ async function fetchLast7Days(): Promise<LineChartPoint[]> {
     });
 }
 
-export function StatusLineChart() {
-    const [data, setData] = useState<LineChartPoint[]>([]);
+type StatusLineChartProps = {
+    readonly typeFilter: string;
+};
 
-    useEffect(() => {
+export function StatusLineChart({ typeFilter }: StatusLineChartProps) {
+    const [data, setData] = React.useState<LineChartPoint[]>([]);
+    const [loading, setLoading] = React.useState(true);
+    const [error, setError] = React.useState<string | null>(null);
+
+    React.useEffect(() => {
         let cancelled = false;
 
-        fetchLast7Days()
+        setLoading(true);
+        setError(null);
+
+        fetchLast7Days(typeFilter)
             .then((points) => {
                 if (!cancelled) {
                     setData(points);
+                    setLoading(false);
                 }
             })
-            .catch((error) => {
-                console.error("Error loading 7-day line chart data:", error);
+            .catch((err) => {
+                if (!cancelled) {
+                    console.error("Error loading 7-day line chart data:", err);
+                    setError(err instanceof Error ? err.message : "Failed to load data");
+                    setLoading(false);
+                }
             });
 
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [typeFilter]);
+
+    if (loading) {
+        return (
+            <Card className="flex flex-col">
+                <CardHeader className="pb-2">
+                    <CardTitle>Last 7 Days</CardTitle>
+                    <CardDescription>
+                        Daily status counts (To Do, In Progress, Done)
+                    </CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <div className="flex h-[260px] items-center justify-center">
+                        <p className="text-muted-foreground">Loading...</p>
+                    </div>
+                </CardContent>
+            </Card>
+        );
+    }
+
+    if (error) {
+        return (
+            <Card className="flex flex-col">
+                <CardHeader className="pb-2">
+                    <CardTitle>Last 7 Days</CardTitle>
+                    <CardDescription>
+                        Daily status counts (To Do, In Progress, Done)
+                    </CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <div className="flex h-[260px] items-center justify-center">
+                        <p className="text-red-500">Error: {error}</p>
+                    </div>
+                </CardContent>
+            </Card>
+        );
+    }
 
     return (
         <Card className="flex flex-col">
             <CardHeader className="pb-2">
                 <CardTitle>Last 7 Days</CardTitle>
                 <CardDescription>
-                    Daily Bug status counts (To Do, In Progress, Done)
+                    Daily status counts (To Do, In Progress, Done)
                 </CardDescription>
             </CardHeader>
             <CardContent>

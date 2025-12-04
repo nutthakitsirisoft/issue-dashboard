@@ -7,7 +7,7 @@ type JiraEnv = {
 };
 
 function getJiraEnv(): JiraEnv {
-  const baseUrl = process.env.JIRA_BASE_URL;
+  const baseUrl = process.env.NEXT_PUBLIC_JIRA_BASE_URL;
   const email = process.env.JIRA_EMAIL;
   const apiToken = process.env.JIRA_API_TOKEN;
 
@@ -19,18 +19,16 @@ function getJiraEnv(): JiraEnv {
 }
 
 function createAuthHeader(env: JiraEnv): string {
-  return `Basic ${Buffer.from(`${env.email}:${env.apiToken}`).toString(
-    "base64",
-  )}`;
+  const credentials = `${env.email}:${env.apiToken}`;
+  return `Basic ${Buffer.from(credentials).toString("base64")}`;
 }
 
 // Escape status for JQL
 function escapeJql(status: string): string {
-  return `"${status.replace(/"/g, '\\"')}"`;
+  return `"${status.replaceAll('"', String.raw`\"`)}"`;
 }
 
 const PROJECT_KEY = "S2SWFE";
-const ISSUE_TYPE = "Bug";
 
 async function fetchApproximateCount(jql: string): Promise<number> {
   const env = getJiraEnv();
@@ -89,10 +87,12 @@ export async function GET(request: Request) {
     // Optional extra JQL controls:
     // - time:   arbitrary JQL time clause, e.g. `created >= startOfDay()` or `updated >= -7d`
     // - jql:    any additional JQL clause, e.g. `duedate is EMPTY` or `duedate = now()`
+    // - type:   issue type filter, e.g. `Bug`, `Task`, or `All` (for both Bug and Task)
     //
     // Both are appended with AND to the base query for every requested status.
     const timeClause = searchParams.get("time");
     const extraJqlClause = searchParams.get("jql");
+    const typeFilter = searchParams.get("type") || "Bug";
     console.log("searchParams", searchParams);
     // Support either:
     // - ?status=To%20Do&status=In%20Progress
@@ -100,12 +100,14 @@ export async function GET(request: Request) {
     const statusParams = searchParams.getAll("status");
     const csvStatuses = searchParams.get("statuses");
 
-    const statusesRaw: unknown =
-      statusParams.length > 0
-        ? statusParams
-        : csvStatuses
-          ? csvStatuses.split(",")
-          : [];
+    let statusesRaw: unknown;
+    if (statusParams.length > 0) {
+      statusesRaw = statusParams;
+    } else if (csvStatuses) {
+      statusesRaw = csvStatuses.split(",");
+    } else {
+      statusesRaw = [];
+    }
 
     if (!Array.isArray(statusesRaw) || statusesRaw.length === 0) {
       return NextResponse.json(
@@ -114,10 +116,23 @@ export async function GET(request: Request) {
       );
     }
 
+    // Build type filter clause
+    function buildTypeClause(typeFilter: string): string {
+      if (typeFilter === "All") {
+        return "type IN (Bug, Task)";
+      } else if (typeFilter === "Bug" || typeFilter === "Task") {
+        return `type = ${typeFilter}`;
+      } else {
+        return "type = Bug"; // default
+      }
+    }
+
+    const typeClause = buildTypeClause(typeFilter);
+
     const results: StatusCountResult[] = await Promise.all(
       statusesRaw.map(async (status) => {
         const statusString = String(status);
-        let jql = `project = "${PROJECT_KEY}" AND type = ${ISSUE_TYPE} AND status = ${escapeJql(
+        let jql = `project = "${PROJECT_KEY}" AND ${typeClause} AND status = ${escapeJql(
           statusString,
         )}`;
 

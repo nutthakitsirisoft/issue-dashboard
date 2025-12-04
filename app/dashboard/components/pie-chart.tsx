@@ -1,6 +1,7 @@
-"use client"
+"use client";
 
-import { Pie, PieChart } from "recharts"
+import * as React from "react";
+import { Pie, PieChart } from "recharts";
 
 import {
     Card,
@@ -45,23 +46,45 @@ const chartConfig: ChartConfig = {
     },
 };
 
-export interface ChartPieData {
-    status: string;
-    amount: number;
-    fill: string;
-}
+export type ChartPieData = {
+    readonly status: string;
+    readonly amount: number;
+    readonly fill: string;
+};
 
-interface ChartPieSimpleProps {
+type ChartPieSimpleProps = {
     readonly chartData: readonly ChartPieData[];
-}
+    readonly loading?: boolean;
+};
 
-export function ChartPieSimple({ chartData }: ChartPieSimpleProps) {
+export function ChartPieSimple({ chartData, loading = false }: ChartPieSimpleProps) {
+    if (loading) {
+        return (
+            <Card className="flex flex-col">
+                <CardHeader className="items-center pb-0">
+                    <CardTitle>Pie Chart</CardTitle>
+                    <CardDescription>
+                        Status Jira {new Date().toLocaleDateString("en-GB")}
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-1 flex-col gap-4 pb-0 md:flex-row md:items-center">
+                    <div className="flex flex-1 items-center justify-center">
+                        <div className="mx-auto aspect-square max-h-[250px] flex items-center justify-center">
+                            <p className="text-muted-foreground">Loading...</p>
+                        </div>
+                    </div>
+                </CardContent>
+                <CardFooter className="flex-col gap-2 text-sm" />
+            </Card>
+        );
+    }
+
     return (
         <Card className="flex flex-col">
             <CardHeader className="items-center pb-0">
                 <CardTitle>Pie Chart</CardTitle>
                 <CardDescription>
-                    Status Bug Jira {new Date().toLocaleDateString("en-GB")}
+                    Status Jira {new Date().toLocaleDateString("en-GB")}
                 </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-1 flex-col gap-4 pb-0 md:flex-row md:items-center">
@@ -111,5 +134,5 @@ export function ChartPieSimple({ chartData }: ChartPieSimpleProps) {
             </CardContent>
             <CardFooter className="flex-col gap-2 text-sm" />
         </Card>
-    )
+    );
 }

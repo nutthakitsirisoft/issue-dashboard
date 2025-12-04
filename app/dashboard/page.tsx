@@ -1,6 +1,10 @@
+"use client";
+
+import * as React from "react";
 import { ChartPieSimple } from "./components/pie-chart";
 import { StatusLineChart } from "./components/line-chart";
 import { TableJiraStatus } from "./components/jira-table";
+import { FilterDropdownMenu } from "./components/filter-dropdown";
 
 type DefectStatusName =
     | "Blocked"
@@ -42,16 +46,16 @@ const STATUS_TO_COLOR_MAP: Readonly<Record<DefectStatusName, string>> = {
 };
 
 const BASE_URL =
-    process.env.NODE_ENV !== "development" &&
-        process.env.NEXT_PUBLIC_BASE_URL
-        ? process.env.NEXT_PUBLIC_BASE_URL
-        : "http://localhost:3000";
+    globalThis.window?.location.origin ??
+    process.env.NEXT_PUBLIC_BASE_URL ??
+    "http://localhost:3000";
 
-async function fetchDefectSummary(): Promise<DefectSummaryResponse> {
+async function fetchDefectSummary(typeFilter: string): Promise<DefectSummaryResponse> {
     const params = new URLSearchParams();
     DEFECT_STATUS_ORDER.forEach((status) => {
         params.append("status", status);
     });
+    params.append("type", typeFilter);
 
     const response = await fetch(`${BASE_URL}/api/defect/query?${params.toString()}`, {
         method: "GET",
@@ -86,13 +90,14 @@ type DueSummaryResponse = {
     assigneeEmptyTotal: number;
 };
 
-async function fetchDueDateSummary(): Promise<DueSummaryResponse> {
+async function fetchDueDateSummary(typeFilter: string): Promise<DueSummaryResponse> {
     const params = new URLSearchParams();
 
     // We want to count across all statuses, so reuse the same order list.
     DEFECT_STATUS_ORDER.forEach((status) => {
         params.append("status", status);
     });
+    params.append("type", typeFilter);
 
     // 1) duedate is EMPTY
     const emptyRes = await fetch(
@@ -174,37 +179,74 @@ async function fetchDueDateSummary(): Promise<DueSummaryResponse> {
     };
 }
 
-export default async function Page() {
-    const [defectSummary, dueDateSummary] = await Promise.all([
-        fetchDefectSummary(),
-        fetchDueDateSummary(),
-    ]);
-    const chartData = Object.entries(defectSummary.summary)
-        .filter(
-            ([status]) =>
-                !EXCLUDED_STATUSES_FOR_CHART.has(status as DefectStatusName),
-        )
-        .map(([status, amount]) => {
-            const typedStatus = status as DefectStatusName;
+export default function Page() {
+    const [typeFilter, setTypeFilter] = React.useState("All");
+    const [defectSummary, setDefectSummary] = React.useState<DefectSummaryResponse | null>(null);
+    const [dueDateSummary, setDueDateSummary] = React.useState<DueSummaryResponse | null>(null);
+    const [loading, setLoading] = React.useState(true);
+    const [error, setError] = React.useState<string | null>(null);
 
-            return {
-                status: typedStatus,
-                amount,
-                fill: STATUS_TO_COLOR_MAP[typedStatus],
-            };
-        });
+    // Access NEXT_PUBLIC_ environment variable directly in client component
+    const jiraBaseUrl = process.env.NEXT_PUBLIC_JIRA_BASE_URL || "";
+
+    React.useEffect(() => {
+        async function loadData() {
+            setLoading(true);
+            setError(null);
+            try {
+                const [defectData, dueData] = await Promise.all([
+                    fetchDefectSummary(typeFilter),
+                    fetchDueDateSummary(typeFilter),
+                ]);
+                setDefectSummary(defectData);
+                setDueDateSummary(dueData);
+            } catch (err) {
+                setError(err instanceof Error ? err.message : "Failed to fetch data");
+            } finally {
+                setLoading(false);
+            }
+        }
+        loadData();
+    }, [typeFilter]);
+
+    const chartData = defectSummary
+        ? Object.entries(defectSummary.summary)
+            .filter(
+                ([status]) =>
+                    !EXCLUDED_STATUSES_FOR_CHART.has(status as DefectStatusName),
+            )
+            .map(([status, amount]) => {
+                const typedStatus = status as DefectStatusName;
+
+                return {
+                    status: typedStatus,
+                    amount,
+                    fill: STATUS_TO_COLOR_MAP[typedStatus],
+                };
+            })
+        : [];
 
     return (
         <div className="flex flex-col gap-4">
+            <div>
+                <FilterDropdownMenu value={typeFilter} onValueChange={setTypeFilter} />
+            </div>
+            {error && (
+                <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+                    <p className="text-red-600">Error: {error}</p>
+                </div>
+            )}
             <div className="grid gap-4 md:grid-cols-2">
-                <ChartPieSimple chartData={chartData} />
-                <StatusLineChart />
+                <ChartPieSimple chartData={chartData} loading={loading} />
+                <StatusLineChart typeFilter={typeFilter} />
             </div>
             <div className="grid gap-4">
                 <TableJiraStatus
                     data={chartData}
-                    dueDateSummary={dueDateSummary}
-                    jiraBaseUrl={process.env.JIRA_BASE_URL || ""}
+                    dueDateSummary={dueDateSummary ?? undefined}
+                    jiraBaseUrl={jiraBaseUrl}
+                    typeFilter={typeFilter}
+                    loading={loading}
                 />
             </div>
 
