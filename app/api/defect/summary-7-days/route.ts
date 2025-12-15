@@ -17,8 +17,10 @@ import type { DaySummary } from "@/types";
  * - type: Filter by issue type - "Bug", "Task", or "All" (default: "All")
  *
  * Returns: { days: [{ date: string, todo: number, inProgress: number, done: number }] }
- *           Each day object contains counts for each status
- *           Fields: todo (To Do count), inProgress, done
+ *           Each day object contains counts for each status based on when status changes occurred
+ *           - todo: Count of issues created on that day (they typically start in To Do)
+ *           - inProgress: Count of issues that changed to "In Progress" on that day
+ *           - done: Count of issues that changed to "Done" on that day
  */
 export async function GET(request: Request) {
   try {
@@ -42,13 +44,11 @@ export async function GET(request: Request) {
       nextDay.setDate(day.getDate() + 1);
 
       // Format dates as YYYY-MM-DD for JQL query
-      const startStr = formatDateOnly(day);
-      const endStr = formatDateOnly(nextDay);
+      const dateStr = formatDateOnly(day);
+      const nextDateStr = formatDateOnly(nextDay);
 
       // Build base JQL query with project and type filter
       const baseJqlPrefix = `project = "${PROJECT_KEY}" AND ${typeClause}`;
-      // Create date range filter for issues created on this specific day
-      const dateWindow = `created >= "${startStr}" AND created < "${endStr}"`;
 
       // Initialize summary object for this day
       const summary: DaySummary = {
@@ -59,12 +59,22 @@ export async function GET(request: Request) {
       };
 
       // Fetch counts for all statuses in parallel for better performance
+      // Use status change queries to track when issues changed to each status
       const counts = await Promise.all(
         STATUSES.map(async (status) => {
-          // Build JQL query: project + type + status + date range
-          const jql = `${baseJqlPrefix} AND status = ${escapeJql(
-            status,
-          )} AND ${dateWindow}`;
+          let jql: string;
+          
+          if (status === "To Do") {
+            // For "To Do", count issues created on this day (they typically start in To Do)
+            jql = `${baseJqlPrefix} AND created >= "${dateStr}" AND created < "${nextDateStr}"`;
+          } else {
+            // For "In Progress" and "Done", count issues that changed to this status on this day
+            // Use "ON" for exact day match: status CHANGED TO "Status" ON "YYYY-MM-DD"
+            jql = `${baseJqlPrefix} AND status CHANGED TO ${escapeJql(
+              status,
+            )} ON "${dateStr}"`;
+          }
+          
           const count = await fetchApproximateCount(jql);
           return { status, count };
         }),

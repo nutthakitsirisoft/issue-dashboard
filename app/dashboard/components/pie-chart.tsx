@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Pie, PieChart } from "recharts";
+import type { CustomTooltipProps } from '@/components/ui/chart'
 
 import {
     Card,
@@ -51,6 +52,7 @@ const chartConfig: ChartConfig = {
  */
 export function ChartPieSimple({ chartData, loading = false }: Readonly<ChartPieSimpleProps>) {
     // Show loading state while data is being fetched
+    console.log("chart data", chartData);
     if (loading) {
         return (
             <Card className="flex flex-col">
@@ -89,10 +91,12 @@ export function ChartPieSimple({ chartData, loading = false }: Readonly<ChartPie
                         <PieChart>
                             <ChartTooltip
                                 cursor={false}
-                                content={<ChartTooltipContent hideLabel />}
+                                content={(props: CustomTooltipProps) => (
+                                    <ChartTooltipContent {...props} hideIndicator hideLabel />
+                                )}
                             />
                             {/* Pie chart with status amounts */}
-                            <Pie data={chartData as any[]} dataKey="amount" label nameKey="status" />
+                            <Pie data={chartData as any[]} dataKey="amount" nameKey="status" />
                         </PieChart>
                     </ChartContainer>
                 </div>

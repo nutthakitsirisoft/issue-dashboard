@@ -23,6 +23,7 @@ import {
   ChartLegendContent,
   ChartTooltip,
   ChartTooltipContent,
+  type CustomTooltipProps,
 } from "@/components/ui/chart";
 import type { DaySummary, LineChartPoint, StatusLineChartProps } from "@/types";
 import { BASE_URL } from "@/lib/constants/api";
@@ -183,7 +184,12 @@ export function StatusLineChart({ typeFilter }: Readonly<StatusLineChartProps>) 
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="date" />
             <YAxis allowDecimals={false} />
-            <ChartTooltip content={<ChartTooltipContent />} />
+            <ChartTooltip
+              cursor={false}
+              content={(props: CustomTooltipProps) => (
+                <ChartTooltipContent {...props} hideIndicator hideLabel />
+              )}
+            />
             <ChartLegend content={<ChartLegendContent />} />
             <Line
               type="monotone"
