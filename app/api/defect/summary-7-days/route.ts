@@ -1,143 +1,56 @@
 import { NextResponse } from "next/server";
+import {
+  fetchApproximateCount,
+  buildTypeClause,
+  escapeJql,
+  formatDateOnly,
+  mapStatusToKey,
+} from "@/lib/jira";
+import { STATUSES, PROJECT_KEY } from "@/lib/constants/jira";
+import type { DaySummary } from "@/types";
 
-type JiraEnv = {
-  baseUrl: string;
-  email: string;
-  apiToken: string;
-};
-
-function getJiraEnv(): JiraEnv {
-  const baseUrl = process.env.NEXT_PUBLIC_JIRA_BASE_URL;
-  const email = process.env.JIRA_EMAIL;
-  const apiToken = process.env.JIRA_API_TOKEN;
-
-  if (!baseUrl || !email || !apiToken) {
-    throw new Error("Missing required JIRA_* environment variables");
-  }
-
-  return { baseUrl, email, apiToken };
-}
-
-function createAuthHeader(env: JiraEnv): string {
-  const credentials = `${env.email}:${env.apiToken}`;
-  return `Basic ${Buffer.from(credentials).toString("base64")}`;
-}
-
-// Escape status for JQL
-function escapeJql(status: string): string {
-  const escaped = status.replaceAll('"', String.raw`\"`);
-  return `"${escaped}"`;
-}
-
-const PROJECT_KEY = "S2SWFE";
-
-// Build type filter clause
-function buildTypeClause(typeFilter: string): string {
-  if (typeFilter === "All") {
-    return "type IN (Bug, Task)";
-  } else if (typeFilter === "Bug" || typeFilter === "Task") {
-    return `type = ${typeFilter}`;
-  } else {
-    return "type = Bug"; // default
-  }
-}
-
-const STATUSES = ["To Do", "In Progress", "Done"] as const;
-
-type StatusKey = "todo" | "inProgress" | "done";
-
-type DaySummary = {
-  date: string;
-  todo: number;
-  inProgress: number;
-  done: number;
-};
-
-// Format a Date as yyyy-MM-dd in the server's local timezone (your OS timezone),
-// so that 2025-12-01 00:00 in Asia/Bangkok stays "2025-12-01" instead of
-// becoming 2025-11-30 when converted to UTC.
-function formatDateOnly(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function mapStatusToKey(status: (typeof STATUSES)[number]): StatusKey {
-  switch (status) {
-    case "To Do":
-      return "todo";
-    case "In Progress":
-      return "inProgress";
-    case "Done":
-      return "done";
-  }
-}
-
-async function fetchApproximateCount(jql: string): Promise<number> {
-  const env = getJiraEnv();
-  const authHeader = createAuthHeader(env);
-
-  const res = await fetch(
-    `${env.baseUrl}/rest/api/3/search/approximate-count`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: authHeader,
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ jql }),
-      cache: "no-store",
-    },
-  );
-
-  const text = await res.text();
-  let data: unknown = null;
-
-  if (text) {
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = null;
-    }
-  }
-
-  const count =
-    data &&
-    typeof data === "object" &&
-    "count" in data &&
-    typeof (data as { count: unknown }).count === "number"
-      ? (data as { count: number }).count
-      : 0;
-
-  return count;
-}
-
+/**
+ * API endpoint to get defect summary for the last 7 days
+ * Returns daily counts for each status (To Do, In Progress, Done)
+ *
+ * Query parameters:
+ * - type: Filter by issue type - "Bug", "Task", or "All" (default: "All")
+ *
+ * Returns: { days: [{ date: string, todo: number, inProgress: number, done: number }] }
+ *           Each day object contains counts for each status
+ *           Fields: todo (To Do count), inProgress, done
+ */
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const typeFilter = searchParams.get("type") || "All";
 
+    // Set today to start of day (midnight) for consistent date calculations
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     const days: DaySummary[] = [];
     const typeClause = buildTypeClause(typeFilter);
 
-    // Oldest first (6 days ago) up to today
+    // Loop through last 7 days (from 6 days ago to today)
+    // We go backwards so oldest day is first in the array
     for (let offset = 6; offset >= 0; offset -= 1) {
+      // Calculate the date for this day (offset days ago from today)
       const day = new Date(today);
       day.setDate(today.getDate() - offset);
       const nextDay = new Date(day);
       nextDay.setDate(day.getDate() + 1);
 
+      // Format dates as YYYY-MM-DD for JQL query
       const startStr = formatDateOnly(day);
       const endStr = formatDateOnly(nextDay);
 
+      // Build base JQL query with project and type filter
       const baseJqlPrefix = `project = "${PROJECT_KEY}" AND ${typeClause}`;
+      // Create date range filter for issues created on this specific day
       const dateWindow = `created >= "${startStr}" AND created < "${endStr}"`;
 
+      // Initialize summary object for this day
       const summary: DaySummary = {
         date: day.toISOString(),
         todo: 0,
@@ -145,8 +58,10 @@ export async function GET(request: Request) {
         done: 0,
       };
 
+      // Fetch counts for all statuses in parallel for better performance
       const counts = await Promise.all(
         STATUSES.map(async (status) => {
+          // Build JQL query: project + type + status + date range
           const jql = `${baseJqlPrefix} AND status = ${escapeJql(
             status,
           )} AND ${dateWindow}`;
@@ -155,6 +70,7 @@ export async function GET(request: Request) {
         }),
       );
 
+      // Map status counts to summary object
       for (const { status, count } of counts) {
         const key = mapStatusToKey(status);
         summary[key] = count;

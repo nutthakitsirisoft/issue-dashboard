@@ -7,19 +7,18 @@ import {
     Card,
     CardContent,
     CardDescription,
-    CardFooter,
     CardHeader,
     CardTitle,
-} from "@/components/ui/card"
+} from "@/components/ui/card";
 import {
     ChartConfig,
     ChartContainer,
     ChartTooltip,
     ChartTooltipContent,
-} from "@/components/ui/chart"
+} from "@/components/ui/chart";
+import type { ChartPieSimpleProps } from "@/types";
 
-export const description = "A simple pie chart"
-
+// Chart configuration for pie chart colors and labels
 const chartConfig: ChartConfig = {
     amount: {
         label: "Amount",
@@ -46,18 +45,12 @@ const chartConfig: ChartConfig = {
     },
 };
 
-export type ChartPieData = {
-    readonly status: string;
-    readonly amount: number;
-    readonly fill: string;
-};
-
-type ChartPieSimpleProps = {
-    readonly chartData: readonly ChartPieData[];
-    readonly loading?: boolean;
-};
-
-export function ChartPieSimple({ chartData, loading = false }: ChartPieSimpleProps) {
+/**
+ * Pie chart component displaying defect status distribution
+ * Shows current status breakdown with color-coded segments
+ */
+export function ChartPieSimple({ chartData, loading = false }: Readonly<ChartPieSimpleProps>) {
+    // Show loading state while data is being fetched
     if (loading) {
         return (
             <Card className="flex flex-col">
@@ -74,7 +67,6 @@ export function ChartPieSimple({ chartData, loading = false }: ChartPieSimplePro
                         </div>
                     </div>
                 </CardContent>
-                <CardFooter className="flex-col gap-2 text-sm" />
             </Card>
         );
     }
@@ -88,6 +80,7 @@ export function ChartPieSimple({ chartData, loading = false }: ChartPieSimplePro
                 </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-1 flex-col gap-4 pb-0 md:flex-row md:items-center">
+                {/* Pie chart visualization */}
                 <div className="flex-1">
                     <ChartContainer
                         config={chartConfig}
@@ -98,10 +91,12 @@ export function ChartPieSimple({ chartData, loading = false }: ChartPieSimplePro
                                 cursor={false}
                                 content={<ChartTooltipContent hideLabel />}
                             />
+                            {/* Pie chart with status amounts */}
                             <Pie data={chartData as any[]} dataKey="amount" label nameKey="status" />
                         </PieChart>
                     </ChartContainer>
                 </div>
+                {/* Legend showing status colors */}
                 <div className="w-full space-y-2 text-xs md:w-1/3">
                     {Object.entries(chartConfig)
                         .filter(([key]) => key !== "amount")
@@ -132,7 +127,6 @@ export function ChartPieSimple({ chartData, loading = false }: ChartPieSimplePro
                         })}
                 </div>
             </CardContent>
-            <CardFooter className="flex-col gap-2 text-sm" />
         </Card>
     );
 }
