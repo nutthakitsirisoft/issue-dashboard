@@ -60,16 +60,27 @@ export async function GET(request: Request) {
 
       // Fetch counts for all statuses in parallel for better performance
       // Use status change queries to track when issues changed to each status
+      const isToday = offset === 0; // Check if this is today (offset 0)
+      
       const counts = await Promise.all(
         STATUSES.map(async (status) => {
           let jql: string;
           
           if (status === "To Do") {
             // For "To Do", count issues created on this day (they typically start in To Do)
-            jql = `${baseJqlPrefix} AND created >= "${dateStr}" AND created < "${nextDateStr}"`;
+            // For today, use >= dateStr to capture all issues created today up to now
+            // For past days, use date range
+            jql = isToday
+              ? `${baseJqlPrefix} AND created >= "${dateStr}"`
+              : `${baseJqlPrefix} AND created >= "${dateStr}" AND created < "${nextDateStr}"`;
+          } else if (isToday) {
+            // For today, use AFTER startOfDay() to capture all status changes up to now
+            // This ensures we get all changes that happened today, even if it's past midnight
+            jql = `${baseJqlPrefix} AND status CHANGED TO ${escapeJql(
+              status,
+            )} AFTER startOfDay()`;
           } else {
-            // For "In Progress" and "Done", count issues that changed to this status on this day
-            // Use "ON" for exact day match: status CHANGED TO "Status" ON "YYYY-MM-DD"
+            // For past days, use "ON" for exact day match: status CHANGED TO "Status" ON "YYYY-MM-DD"
             jql = `${baseJqlPrefix} AND status CHANGED TO ${escapeJql(
               status,
             )} ON "${dateStr}"`;
